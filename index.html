@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>畑ログ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 12px;
+}
+h1 { font-size: 18px; }
+#top, #detail { display: none; }
+
+img {
+  max-width: 100%;
+  border: 1px solid #ccc;
+}
+
+/* 畑タップ用 */
+.area {
+  position: absolute;
+}
+
+/* 詳細ページ */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th, td {
+  border-bottom: 1px solid #ddd;
+  padding: 4px;
+}
+th { text-align: left; }
+
+input[type="date"] { width: 120px; }
+input[type="number"] { width: 70px; }
+input.memo { width: 100%; }
+
+button {
+  padding: 4px 8px;
+  margin: 2px;
+}
+
+.controls {
+  margin: 8px 0;
+}
+</style>
+</head>
+<body>
+
+<h1>畑ログ</h1>
+
+<!-- トップ -->
+<div id="top">
+  <div style="position:relative;">
+    <img src="hatake.png" alt="畑" />
+
+    <!-- 作物タップエリア（座標は後で微調整） -->
+    <div class="area" style="top:20%;left:10%;width:20%;height:20%;" onclick="openCrop('ピーマン')"></div>
+    <div class="area" style="top:10%;left:35%;width:20%;height:20%;" onclick="openCrop('なす')"></div>
+    <div class="area" style="top:35%;left:35%;width:20%;height:20%;" onclick="openCrop('枝豆')"></div>
+    <div class="area" style="top:10%;left:60%;width:20%;height:20%;" onclick="openCrop('トマト')"></div>
+    <div class="area" style="top:35%;left:60%;width:20%;height:20%;" onclick="openCrop('ミニトマト')"></div>
+    <div class="area" style="top:10%;left:85%;width:15%;height:20%;" onclick="openCrop('きゅうり')"></div>
+    <div class="area" style="top:35%;left:85%;width:15%;height:20%;" onclick="openCrop('とうもろこし')"></div>
+  </div>
+
+  <div class="controls">
+    年：
+    <select id="yearSelect" onchange="changeYear()"></select>
+  </div>
+</div>
+
+<!-- 詳細 -->
+<div id="detail">
+  <button onclick="back()">← 戻る</button>
+  <h2 id="cropTitle"></h2>
+  <p>収穫総量：<strong id="total">0</strong> 個</p>
+
+  <div class="controls">
+    <input type="date" id="date" />
+    <select id="type" onchange="toggleHarvest()">
+      <option>植え付け</option>
+      <option>施肥</option>
+      <option>収穫</option>
+      <option>片付け</option>
+    </select>
+    <input type="number" id="amount" placeholder="個数" style="display:none;" />
+    <input type="text" id="memo" class="memo" placeholder="備考" />
+    <button id="saveBtn" onclick="saveWork()">追加</button>
+    <button id="cancelBtn" onclick="cancelEdit()" style="display:none;">キャンセル</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>日付</th>
+        <th>作業</th>
+        <th>収量</th>
+        <th>備考</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="list"></tbody>
+  </table>
+</div>
+
+<script>
+const STORAGE_KEY = "hatakeLog";
+let currentCrop = "";
+let currentYear = new Date().getFullYear();
+let editIndex = null;
+
+const date = document.getElementById("date");
+const type = document.getElementById("type");
+const amount = document.getElementById("amount");
+const memo = document.getElementById("memo");
+
+function getData() {
+  return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+}
+function saveData(d) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+}
+
+function init() {
+  const yearSel = document.getElementById("yearSelect");
+  const now = new Date().getFullYear();
+  for (let y = now - 3; y <= now + 1; y++) {
+    const o = document.createElement("option");
+    o.value = y;
+    o.textContent = y;
+    if (y === currentYear) o.selected = true;
+    yearSel.appendChild(o);
+  }
+  showTop();
+}
+function changeYear() {
+  currentYear = Number(yearSelect.value);
+}
+
+function showTop() {
+  top.style.display = "block";
+  detail.style.display = "none";
+}
+function openCrop(name) {
+  currentCrop = name;
+  cropTitle.textContent = name + "（" + currentYear + "年）";
+  top.style.display = "none";
+  detail.style.display = "block";
+  render();
+}
+function back() {
+  showTop();
+}
+
+function toggleHarvest() {
+  amount.style.display = type.value === "収穫" ? "inline-block" : "none";
+}
+
+function saveWork() {
+  const data = getData();
+  if (!data[currentYear]) data[currentYear] = {};
+  if (!data[currentYear][currentCrop]) data[currentYear][currentCrop] = [];
+
+  const work = {
+    date: date.value,
+    type: type.value,
+    amount: type.value === "収穫" ? Number(amount.value || 0) : 0,
+    memo: memo.value
+  };
+
+  if (editIndex === null) {
+    data[currentYear][currentCrop].push(work);
+  } else {
+    data[currentYear][currentCrop][editIndex] = work;
+    editIndex = null;
+    saveBtn.textContent = "追加";
+    cancelBtn.style.display = "none";
+  }
+
+  saveData(data);
+  clearForm();
+  render();
+}
+
+function editWork(i) {
+  const w = getData()[currentYear][currentCrop][i];
+  date.value = w.date;
+  type.value = w.type;
+  amount.value = w.amount;
+  memo.value = w.memo;
+  toggleHarvest();
+  editIndex = i;
+  saveBtn.textContent = "更新";
+  cancelBtn.style.display = "inline";
+}
+
+function deleteWork(i) {
+  if (!confirm("削除しますか？")) return;
+  const data = getData();
+  data[currentYear][currentCrop].splice(i, 1);
+  saveData(data);
+  render();
+}
+
+function cancelEdit() {
+  editIndex = null;
+  clearForm();
+  saveBtn.textContent = "追加";
+  cancelBtn.style.display = "none";
+}
+
+function clearForm() {
+  date.value = "";
+  type.value = "植え付け";
+  amount.value = "";
+  memo.value = "";
+  toggleHarvest();
+}
+
+function render() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  const data = getData();
+  const works = data[currentYear]?.[currentCrop] || [];
+  let total = 0;
+
+  works.forEach((w, i) => {
+    if (w.type === "収穫") total += w.amount;
+    list.innerHTML += `
+      <tr>
+        <td>${w.date}</td>
+        <td>${w.type}</td>
+        <td>${w.amount || ""}</td>
+        <td>${w.memo}</td>
+        <td>
+          <button onclick="editWork(${i})">編集</button>
+          <button onclick="deleteWork(${i})">削除</button>
+        </td>
+      </tr>`;
+  });
+
+  document.getElementById("total").textContent = total;
+}
+
+init();
+</script>
+</body>
+</html>
