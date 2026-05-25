@@ -109,8 +109,8 @@ button {
 </div>
 
 <script>
-const top = document.getElementById("top");
-const detail = document.getElementById("detail");
+const topPage = document.getElementById("top");
+const detailPage = document.getElementById("detail");
 const cropTitle = document.getElementById("cropTitle");
 const saveBtn = document.getElementById("saveBtn");
 const cancelBtn = document.getElementById("cancelBtn");
@@ -144,18 +144,19 @@ function init() {
   showTop();
 }
 function changeYear() {
+  const yearSelect = document.getElementById("yearSelect");
   currentYear = Number(yearSelect.value);
 }
 
 function showTop() {
-  top.style.display = "block";
-  detail.style.display = "none";
+  topPage.style.display = "block";
+  detailPage.style.display = "none";
 }
 function openCrop(name) {
   currentCrop = name;
   cropTitle.textContent = name + "（" + currentYear + "年）";
-  top.style.display = "none";
-  detail.style.display = "block";
+  topPage.style.display = "none";
+  detailPage.style.display = "block";
   render();
 }
 function back() {
