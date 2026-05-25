@@ -13,17 +13,24 @@ body {
 h1 { font-size: 18px; }
 #top, #detail { display: none; }
 
-img {
-  max-width: 100%;
-  border: 1px solid #ccc;
+img { max-width: 100%; }
+
+.field {
+  position: relative;
+  margin-bottom: 12px;
 }
 
-/* 畑タップ用 */
 .area {
   position: absolute;
+  cursor: pointer;
+  background: rgba(0,0,0,0);
 }
 
-/* 詳細ページ */
+.area:hover {
+  outline: 2px dashed #4caf50;
+}
+
+/* 詳細 */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -33,20 +40,21 @@ th, td {
   border-bottom: 1px solid #ddd;
   padding: 4px;
 }
-th { text-align: left; }
-
-input[type="date"] { width: 120px; }
+input[type="date"] { width: 110px; }
 input[type="number"] { width: 70px; }
 input.memo { width: 100%; }
 
-button {
-  padding: 4px 8px;
-  margin: 2px;
-}
+.controls { margin: 8px 0; }
+button { padding: 4px 8px; }
 
-.controls {
-  margin: 8px 0;
+/* 配置編集 */
+.editor {
+  border-top: 1px solid #ccc;
+  margin-top: 12px;
+  padding-top: 8px;
 }
+.editor table { font-size: 12px; }
+.editor input { width: 60px; }
 </style>
 </head>
 <body>
@@ -55,22 +63,29 @@ button {
 
 <!-- トップ -->
 <div id="top">
-  <div style="position:relative;">
-    <img src="hatake.png" alt="畑" />
+  <div class="field">
+    <img src="hatake.png" alt="畑">
 
-    <!-- 作物タップエリア（座標は後で微調整） -->
-    <div class="area" style="top:20%;left:10%;width:20%;height:20%;" onclick="openCrop('ピーマン')"></div>
-    <div class="area" style="top:10%;left:35%;width:20%;height:20%;" onclick="openCrop('なす')"></div>
-    <div class="area" style="top:35%;left:35%;width:20%;height:20%;" onclick="openCrop('枝豆')"></div>
-    <div class="area" style="top:10%;left:60%;width:20%;height:20%;" onclick="openCrop('トマト')"></div>
-    <div class="area" style="top:35%;left:60%;width:20%;height:20%;" onclick="openCrop('ミニトマト')"></div>
-    <div class="area" style="top:10%;left:85%;width:15%;height:20%;" onclick="openCrop('きゅうり')"></div>
-    <div class="area" style="top:35%;left:85%;width:15%;height:20%;" onclick="openCrop('とうもろこし')"></div>
+    <div id="areas"></div>
   </div>
 
   <div class="controls">
     年：
     <select id="yearSelect" onchange="changeYear()"></select>
+  </div>
+
+  <!-- 配置編集 -->
+  <div class="editor">
+    <h3>配置編集（%）</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>作物</th><th>top</th><th>left</th><th>w</th><th>h</th>
+        </tr>
+      </thead>
+      <tbody id="editorRows"></tbody>
+    </table>
+    <button onclick="saveLayout()">配置確定</button>
   </div>
 </div>
 
@@ -81,27 +96,22 @@ button {
   <p>収穫総量：<strong id="total">0</strong> 個</p>
 
   <div class="controls">
-    <input type="date" id="date" />
+    <input type="date" id="date">
     <select id="type" onchange="toggleHarvest()">
       <option>植え付け</option>
       <option>施肥</option>
       <option>収穫</option>
       <option>片付け</option>
     </select>
-    <input type="number" id="amount" placeholder="個数" style="display:none;" />
-    <input type="text" id="memo" class="memo" placeholder="備考" />
-    <button id="saveBtn" onclick="saveWork()">追加</button>
-    <button id="cancelBtn" onclick="cancelEdit()" style="display:none;">キャンセル</button>
+    <input type="number" id="amount" placeholder="個数" style="display:none;">
+    <input type="text" id="memo" class="memo" placeholder="備考">
+    <button onclick="saveWork()">追加</button>
   </div>
 
   <table>
     <thead>
       <tr>
-        <th>日付</th>
-        <th>作業</th>
-        <th>収量</th>
-        <th>備考</th>
-        <th>操作</th>
+        <th>日付</th><th>作業</th><th>収量</th><th>備考</th><th>操作</th>
       </tr>
     </thead>
     <tbody id="list"></tbody>
@@ -109,148 +119,158 @@ button {
 </div>
 
 <script>
-const topPage = document.getElementById("top");
-const detailPage = document.getElementById("detail");
-const cropTitle = document.getElementById("cropTitle");
-const saveBtn = document.getElementById("saveBtn");
-const cancelBtn = document.getElementById("cancelBtn");
 const STORAGE_KEY = "hatakeLog";
-let currentCrop = "";
+const LAYOUT_KEY = "hatakeLayout";
+
 let currentYear = new Date().getFullYear();
+let currentCrop = "";
 let editIndex = null;
 
-const date = document.getElementById("date");
-const type = document.getElementById("type");
-const amount = document.getElementById("amount");
-const memo = document.getElementById("memo");
+const defaultLayout = [
+  { name:"ピーマン", top:20, left:5,  w:20, h:20 },
+  { name:"なす",     top:10, left:30, w:20, h:20 },
+  { name:"枝豆",     top:35, left:30, w:20, h:20 },
+  { name:"トマト",   top:10, left:55, w:20, h:20 },
+  { name:"ミニトマト",top:35,left:55, w:20, h:20 },
+  { name:"きゅうり", top:10, left:80, w:15, h:20 },
+  { name:"とうもろこし",top:35,left:80,w:15,h:20 }
+];
 
-function getData() {
-  return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+function getLayout() {
+  const all = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+  return all[currentYear] || structuredClone(defaultLayout);
 }
-function saveData(d) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(d));
+
+function saveLayout() {
+  const all = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "{}");
+  const rows = document.querySelectorAll(".editor input");
+  const layout = [];
+  for (let i=0;i<rows.length;i+=4) {
+    layout.push({
+      name: rows[i].dataset.name,
+      top:+rows[i].value,
+      left:+rows[i+1].value,
+      w:+rows[i+2].value,
+      h:+rows[i+3].value
+    });
+  }
+  all[currentYear] = layout;
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(all));
+  renderAreas();
+}
+
+function renderAreas() {
+  const wrap = document.getElementById("areas");
+  wrap.innerHTML = "";
+  getLayout().forEach(a=>{
+    const d = document.createElement("div");
+    d.className = "area";
+    d.style.top = a.top+"%";
+    d.style.left = a.left+"%";
+    d.style.width = a.w+"%";
+    d.style.height = a.h+"%";
+    d.onclick = ()=>openCrop(a.name);
+    wrap.appendChild(d);
+  });
+  renderEditor();
+}
+
+function renderEditor() {
+  const tb = document.getElementById("editorRows");
+  tb.innerHTML = "";
+  getLayout().forEach(a=>{
+    tb.innerHTML += `
+      <tr>
+        <td>${a.name}</td>
+        <td><input data-name="${a.name}" value="${a.top}"></td>
+        <td><input value="${a.left}"></td>
+        <td><input value="${a.w}"></td>
+        <td><input value="${a.h}"></td>
+      </tr>`;
+  });
 }
 
 function init() {
-  const yearSel = document.getElementById("yearSelect");
-  const now = new Date().getFullYear();
-  for (let y = now - 3; y <= now + 1; y++) {
-    const o = document.createElement("option");
-    o.value = y;
-    o.textContent = y;
-    if (y === currentYear) o.selected = true;
-    yearSel.appendChild(o);
+  const sel = document.getElementById("yearSelect");
+  for (let y=currentYear-2;y<=currentYear+1;y++){
+    const o=document.createElement("option");
+    o.value=y;o.textContent=y;
+    if(y===currentYear)o.selected=true;
+    sel.appendChild(o);
   }
   showTop();
-}
-function changeYear() {
-  const yearSelect = document.getElementById("yearSelect");
-  currentYear = Number(yearSelect.value);
+  renderAreas();
 }
 
-function showTop() {
-  topPage.style.display = "block";
-  detailPage.style.display = "none";
-}
-function openCrop(name) {
-  currentCrop = name;
-  cropTitle.textContent = name + "（" + currentYear + "年）";
-  topPage.style.display = "none";
-  detailPage.style.display = "block";
-  render();
-}
-function back() {
-  showTop();
+function changeYear(){
+  currentYear = +yearSelect.value;
+  renderAreas();
 }
 
-function toggleHarvest() {
-  amount.style.display = type.value === "収穫" ? "inline-block" : "none";
+function showTop(){
+  top.style.display="block";
+  detail.style.display="none";
 }
 
-function saveWork() {
-  const data = getData();
-  if (!data[currentYear]) data[currentYear] = {};
-  if (!data[currentYear][currentCrop]) data[currentYear][currentCrop] = [];
-
-  const work = {
-    date: date.value,
-    type: type.value,
-    amount: type.value === "収穫" ? Number(amount.value || 0) : 0,
-    memo: memo.value
-  };
-
-  if (editIndex === null) {
-    data[currentYear][currentCrop].push(work);
-  } else {
-    data[currentYear][currentCrop][editIndex] = work;
-    editIndex = null;
-    saveBtn.textContent = "追加";
-    cancelBtn.style.display = "none";
-  }
-
-  saveData(data);
-  clearForm();
+function openCrop(name){
+  currentCrop=name;
+  cropTitle.textContent=`${name}（${currentYear}年）`;
+  top.style.display="none";
+  detail.style.display="block";
   render();
 }
 
-function editWork(i) {
-  const w = getData()[currentYear][currentCrop][i];
-  date.value = w.date;
-  type.value = w.type;
-  amount.value = w.amount;
-  memo.value = w.memo;
-  toggleHarvest();
-  editIndex = i;
-  saveBtn.textContent = "更新";
-  cancelBtn.style.display = "inline";
+function back(){ showTop(); }
+
+function toggleHarvest(){
+  amount.style.display = type.value==="収穫"?"inline":"none";
 }
 
-function deleteWork(i) {
-  if (!confirm("削除しますか？")) return;
-  const data = getData();
-  data[currentYear][currentCrop].splice(i, 1);
+function getData(){
+  return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");
+}
+function saveData(d){
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(d));
+}
+
+function saveWork(){
+  const data=getData();
+  data[currentYear] ??= {};
+  data[currentYear][currentCrop] ??= [];
+  data[currentYear][currentCrop].push({
+    date:date.value,
+    type:type.value,
+    amount:type.value==="収穫"?+amount.value:0,
+    memo:memo.value
+  });
   saveData(data);
   render();
 }
 
-function cancelEdit() {
-  editIndex = null;
-  clearForm();
-  saveBtn.textContent = "追加";
-  cancelBtn.style.display = "none";
-}
-
-function clearForm() {
-  date.value = "";
-  type.value = "植え付け";
-  amount.value = "";
-  memo.value = "";
-  toggleHarvest();
-}
-
-function render() {
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-  const data = getData();
-  const works = data[currentYear]?.[currentCrop] || [];
-  let total = 0;
-
-  works.forEach((w, i) => {
-    if (w.type === "収穫") total += w.amount;
-    list.innerHTML += `
+function render(){
+  const list=document.getElementById("list");
+  list.innerHTML="";
+  const works=getData()[currentYear]?.[currentCrop]||[];
+  let total=0;
+  works.forEach((w,i)=>{
+    if(w.type==="収穫")total+=w.amount;
+    list.innerHTML+=`
       <tr>
         <td>${w.date}</td>
         <td>${w.type}</td>
-        <td>${w.amount || ""}</td>
+        <td>${w.amount||""}</td>
         <td>${w.memo}</td>
-        <td>
-          <button onclick="editWork(${i})">編集</button>
-          <button onclick="deleteWork(${i})">削除</button>
-        </td>
+        <td><button onclick="del(${i})">削除</button></td>
       </tr>`;
   });
+  document.getElementById("total").textContent=total;
+}
 
-  document.getElementById("total").textContent = total;
+function del(i){
+  const d=getData();
+  d[currentYear][currentCrop].splice(i,1);
+  saveData(d);
+  render();
 }
 
 init();
